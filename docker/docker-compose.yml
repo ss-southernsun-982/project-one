@@ -1,0 +1,257 @@
+services:
+  postgresql-master:
+    image: postgres:${POSTGRES_VERSION}
+    container_name: postgresql-master
+    hostname: postgresql-master
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER_MASTER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD_MASTER}
+      - POSTGRES_DB=${POSTGRES_DB_MASTER}
+      # - PGDATA=/data/postgres
+    ports:
+      - ${POSTGRES_PORT_MASTER}:5432
+    volumes: 
+      # - ../db/postgresql/master/data:/data/postgres
+      - ../db/postgresql/master/backup:/tmp/postgresslave
+      - ../db/postgresql/master/data:/var/lib/postgresql/data
+      # - ../db/postgresql/config/init.sql:/docker-entrypoint-initdb.d/create_tables.sql
+    networks:
+      - project-one-network
+
+  postgresql-replica-1:
+    image: postgres:${POSTGRES_VERSION}
+    container_name: postgresql-replica-1
+    hostname: postgresql-replica-1
+    restart: always
+    depends_on:
+      - postgresql-master
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER_REPLICA_1}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD_REPLICA_1}
+      # - PGDATA=/data/postgres
+    ports:
+      - ${POSTGRES_PORT_REPLICA_1}:5432
+    volumes: 
+      # - ../db/postgresql/replica_1/data:/data/postgres
+      - ../db/postgresql/replica_1/data:/var/lib/postgresql/data
+      # - ../db/postgresql/config/init.sql:/docker-entrypoint-initdb.d/create_tables.sql
+    networks:
+      - project-one-network
+
+  postgresql-debezium:
+    image: postgres:${POSTGRES_VERSION}
+    container_name: postgresql-debezium
+    hostname: postgresql-debezium
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER_DEBEZIUM}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORK_DEBEZIUM}
+    ports:
+      - ${POSTGRES_PORT_DEBEZIUM}:5432
+    volumes:
+      - ../db/postgresql/debezium/data:/var/lib/postgresql/data
+    networks:
+      - project-one-network
+  
+  rabbitmq-master:
+    image: rabbitmq:${RABBITMQ_VERSION}
+    container_name: rabbitmq-master
+    hostname: rabbitmq-master
+    restart: always
+    ports:
+        - ${RABBITMQ_QUEUE_PORT}:5672
+        - ${RABBITMQ_UI_PORT}:15672
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD}
+    volumes:
+        - ../rabbitmq/data:/var/lib/rabbitmq/
+        - ../rabbitmq/logs/:/var/log/rabbitmq
+    networks:
+      - project-one-network
+
+  zoo-master:
+    image: zookeeper:${ZOOKEEPER_VERSION}
+    container_name: zoo-master
+    hostname: zoo-master
+    restart: always
+    ports:
+      - ${ZOOKEEPER_MASTER_PORT}:2181
+    environment:
+      ZOO_MY_ID: ${ZOOKEEPER_MASTER_ID}
+      ZOO_SERVERS: ${ZOOKEEPER_SERVERS}
+    volumes:
+      - ../zookeeper/master/data:/data
+      - ../zookeeper/master/logs:/datalog
+    networks:
+      - project-one-network
+
+  zoo-replica-1:
+    image: zookeeper:${ZOOKEEPER_VERSION}
+    container_name: zoo-replica-1
+    hostname: zoo-replica-1
+    restart: always
+    depends_on:
+      - zoo-master
+    ports:
+      - ${ZOOKEEPER_REPLICA_1_PORT}:2181
+    environment:
+      ZOO_MY_ID: ${ZOOKEEPER_REPLICA_1_ID}
+      ZOO_SERVERS: ${ZOOKEEPER_SERVERS}
+    volumes:
+      - ../zookeeper/replica-1/data:/data
+      - ../zookeeper/replica-1/logs:/datalog
+    networks:
+      - project-one-network
+
+  kafka-master:
+    image: confluentinc/cp-kafka:${KAFKA_VERSION}
+    container_name: kafka-master
+    hostname: kafka-master  
+    restart: always
+    ports:
+      - ${KAFKA_BROKER_PORT}:9091
+    environment:
+      KAFKA_BROKER_ID: ${KAFKA_BROKER_ID}
+      KAFKA_ZOOKEEPER_CONNECT: ${KAFKA_ZOOKEEPER_CONNECT}
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR}
+      KAFKA_LISTENERS: ${KAFKA_LISTENERS}
+      KAFKA_ADVERTISED_LISTENERS: ${KAFKA_ADVERTISED_LISTENERS}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: ${KAFKA_LISTENER_SECURITY_PROTOCOL_MAP}
+      KAFKA_INTER_BROKER_LISTENER_NAME: ${KAFKA_INTER_BROKER_LISTENER_NAME}
+    volumes:
+      - ../kafka/master/data:/var/lib/kafka/data
+    depends_on:
+      - zoo-master
+      - zoo-replica-1
+    networks:
+      - project-one-network
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop:latest
+    container_name: kafdrop
+    hostname: kafdrop
+    restart: always
+    depends_on:
+      - kafka-master
+    ports:
+      - ${KAFDROP_PORT}:9123
+    environment:
+      SERVER_PORT: ${SERVER_PORT}
+      MANAGEMENT_SERVER_PORT: ${SERVER_PORT}
+      KAFKA_BROKERCONNECT: ${KAFKA_BROKERCONNECT}
+    networks:
+      - project-one-network
+
+  redis-master:
+    image: redis:${REDIS_VERSION}
+    container_name: redis-master
+    hostname: redis-master
+    restart: always
+    environment:
+      - REDIS_REPLICATION_MODE=master
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    ports:
+      - ${REDIS_PORT}:6379
+    volumes:
+      - ../redis/data:/data
+      - ../redis/config:/usr/local/etc/redis/
+    networks:
+      - project-one-network
+
+  redisinsight:
+    image: redislabs/redisinsight:${REDISINSIGHT_VERSION}
+    container_name: redisinsight
+    hostname: redisinsight
+    restart: always
+    environment:
+      - REDISINSIGHT_USERNAME=${REDISINSIGHT_USERNAME}
+      - REDISINSIGHT_PASSWORD=${REDISINSIGHT_PASSWORD}
+    volumes:
+      - ../redisinsight/data:/db
+    ports:
+      - ${REDISINSIGHT_PORT}:8001
+    networks:
+      - project-one-network
+
+  debezium-connect:
+    container_name: debezium-connect
+    hostname: debezium-connect
+    image: debezium/connect:${DEBEZIUM_VERSION}
+    ports:
+      - "8083:8083"
+    links:
+      - zoo-master
+      - postgresql-debezium
+    depends_on:
+      - kafka-master
+      - zoo-master
+      - postgresql-master
+      - postgresql-debezium
+    environment:
+      - BOOTSTRAP_SERVERS=${BOOTSTRAP_SERVERS}
+      - CONFIG_STORAGE_TOPIC=${CONFIG_STORAGE_TOPIC}
+      - OFFSET_STORAGE_TOPIC=${OFFSET_STORAGE_TOPIC}
+      - STATUS_STORAGE_TOPIC=${STATUS_STORAGE_TOPIC}
+      - GROUP_ID=${GROUP_ID}
+      - ENABLE_DEBEZIUM_KC_REST_EXTENSION=${ENABLE_DEBEZIUM_KC_REST_EXTENSION}
+      - ENABLE_DEBEZIUM_SCRIPTING=${ENABLE_DEBEZIUM_SCRIPTING}
+      - CONNECT_REST_EXTENSION_CLASSES=${CONNECT_REST_EXTENSION_CLASSES}
+    networks:
+      - project-one-network
+
+  debezium-ui:
+    container_name: debezium-ui
+    image: debezium/debezium-ui:${DEBEZIUM_VERSION}
+    ports:
+      - "8080:8080"
+    environment:
+      - KAFKA_CONNECT_URIS=KAFKA_CONNECT_URIS
+    depends_on:
+      - debezium-connect
+    networks:
+      - project-one-network
+
+  mysql-master:
+    container_name: mysql-master
+    hostname: mysql-master
+    image: mysql:${MYSQL_VERSION}
+    user: root
+    ports:
+      - ${MYSQL_MASTER_PORT}:3306
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_MASTER_ROOT_PASSWORD}
+      - MYSQL_USER=${MYSQL_MASTER_USER}
+      - MYSQL_PASSWORD=${MYSQL_MASTER_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_MASTER_DATABASE}
+    volumes:
+      - ../db/mysql/master/data:/var/lib/mysql
+      - ../db/mysql/master/conf:/etc/mysql/conf.d
+      - ../db/mysql/master/log:/var/log
+    # command: ["chmod 777 ~/var/lib/*"]
+    networks:
+      - project-one-network
+
+  mysql-replica-1:
+    container_name: mysql-replica-1
+    hostname: mysql-replica-1
+    image: mysql:${MYSQL_VERSION}
+    ports:
+      - ${MYSQL_REPLICA_PORT}:3306
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_REPLICA_ROOT_PASSWORD}
+      - MYSQL_USER=${MYSQL_REPLICA_USER}
+      - MYSQL_PASSWORD=${MYSQL_REPLICA_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_MASTER_DATABASE}
+    depends_on:
+      - mysql-master
+    volumes:
+      - ../db/mysql/replica_1/data:/var/lib/mysql
+      - ../db/mysql/replica_1/conf:/etc/mysql/conf.d
+      - ../db/mysql/replica_1/log:/var/log
+    networks:
+      - project-one-network
+
+networks:
+    project-one-network:

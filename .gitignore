@@ -1,0 +1,11 @@
+zookeeper/*
+rabbitmq/*
+kafka/*
+db/*
+.vscode
+redisinsight/*
+redis/*
+mysql/*
+go-api/logs/log.txt
+
+.DS_Store
